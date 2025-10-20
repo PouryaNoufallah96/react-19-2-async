@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, use, useTransition, useState, ViewTransition } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
 type ImageData = {
@@ -19,62 +19,88 @@ async function fetchImage(id: number): Promise<ImageData> {
 
 function App() {
   const [imageId, setImageId] = useState(1);
-  const [imageData, setImageData] = useState<ImageData>();
-  const [isPending, setIsPending] = useState(false);
-
-  useEffect(() => {
-    setIsPending(true);
-    fetchImage(imageId).then((data) => {
-      setImageData(data);
-      setIsPending(false);
-    });
-  }, [imageId]);
+  const [imageDataPromise, setImageDataPromise] = useState<Promise<ImageData>>(
+    () => fetchImage(imageId)
+  );
 
   return (
     <div className="flex flex-col justify-center items-center bg-blue-950 text-white p-4 h-screen">
-      <Button onClick={() => setImageId(imageId + 1)}>Next Image</Button>
-      {imageData && !isPending && <Image image={imageData!} />}
-      {isPending && <ImageSkeleton />}
+      <Button
+        action={() => {
+          setImageId(imageId + 1);
+          setImageDataPromise(fetchImage(imageId + 1));
+        }}
+      >
+        Next Image
+      </Button>
+      <Suspense fallback={<ImageSkeleton imageId={imageId} />}>
+        <Image imageDataPromise={imageDataPromise} imageId={imageId} />
+      </Suspense>
+    </div>
+  );
+}
+
+function Image({
+  imageDataPromise,
+  imageId,
+}: {
+  imageDataPromise: Promise<ImageData>;
+  imageId: number;
+}) {
+  const image = use(imageDataPromise);
+
+  return (
+    <div className="mt-5">
+      <ViewTransition enter="fade-in" exit="fade-out">
+        <h2 className="text-2xl font-bold mb-4">{image.title}</h2>
+      </ViewTransition>
+      <ViewTransition key={imageId} enter="slide-up" exit="fade-out">
+        <img
+          src={image.url}
+          alt={image.title}
+          className="h-96 object-contain aspect-[5/4]"
+        />
+      </ViewTransition>
+    </div>
+  );
+}
+
+function ImageSkeleton({ imageId }: { imageId: number }) {
+  return (
+    <div className="mt-5">
+      <ViewTransition key={imageId} enter="fade-in" exit="fade-out">
+        <h2 className="text-2xl font-bold mb-4">Loading...</h2>
+      </ViewTransition>
+      <ViewTransition key={imageId} enter="slide-up" exit="fade-out">
+        <div className="h-96 aspect-[5/4] bg-gray-300 animate-pulse rounded-md"></div>
+      </ViewTransition>
     </div>
   );
 }
 
 function Button({
-  onClick,
+  action,
   children,
 }: {
-  onClick: () => void;
+  action: () => void;
   children: React.ReactNode;
 }) {
-  return (
-    <button
-      onClick={onClick}
-      type="button"
-      className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 font-bold text-2xl disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
-    >
-      {children}
-    </button>
-  );
-}
+  const [isPending, startTransition] = useTransition();
 
-function Image({ image }: { image: ImageData }) {
   return (
-    <div className="mt-5">
-      <h2 className="text-2xl font-bold mb-4">{image.title}</h2>
-      <img
-        src={image.url}
-        alt={image.title}
-        className="h-96 object-contain aspect-[5/4]"
-      />
-    </div>
-  );
-}
-
-function ImageSkeleton() {
-  return (
-    <div className="mt-5">
-      <h2 className="text-2xl font-bold mb-4">Loading...</h2>
-      <div className="h-96 aspect-[5/4] bg-gray-300 animate-pulse rounded-md"></div>
-    </div>
+    <ViewTransition update="button-pulse">
+      <button
+        disabled={isPending}
+        onClick={() => {
+          startTransition(async () => {
+            await action();
+          });
+        }}
+        type="button"
+        className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 font-bold text-2xl disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
+      >
+        {children}
+      </button>
+    </ViewTransition>
   );
 }
